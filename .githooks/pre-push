@@ -1,0 +1,76 @@
+#!/bin/sh
+
+set -eu
+
+if [ "${GH_STACK_BYPASS:-0}" = "1" ]; then
+  exit 0
+fi
+
+branch=$(git branch --show-current)
+trunk=${GH_STACK_TRUNK:-main}
+
+if [ -z "$branch" ] || [ "$branch" = "$trunk" ]; then
+  exit 0
+fi
+
+if git show-ref --verify --quiet "refs/remotes/origin/$trunk"; then
+  base_ref="origin/$trunk"
+elif git show-ref --verify --quiet "refs/heads/$trunk"; then
+  base_ref="$trunk"
+else
+  exit 0
+fi
+
+merge_base=$(git merge-base "$base_ref" HEAD)
+stats=$(git diff --numstat "$merge_base"...HEAD | awk '
+  BEGIN { files = 0; additions = 0; deletions = 0 }
+  {
+    files += 1
+    if ($1 ~ /^[0-9]+$/) additions += $1
+    if ($2 ~ /^[0-9]+$/) deletions += $2
+  }
+  END { print files, additions, deletions }
+')
+
+set -- $stats
+files=$1
+additions=$2
+deletions=$3
+lines=$((additions + deletions))
+commits=$(git rev-list --count "$merge_base"..HEAD)
+
+max_files=${GH_STACK_MAX_FILES:-15}
+max_lines=${GH_STACK_MAX_LINES:-800}
+max_commits=${GH_STACK_MAX_COMMITS:-8}
+
+if [ "$files" -lt "$max_files" ] &&
+   [ "$lines" -lt "$max_lines" ] &&
+   [ "$commits" -lt "$max_commits" ]; then
+  exit 0
+fi
+
+if command -v gh >/dev/null 2>&1 && gh stack view >/dev/null 2>&1; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+
+Potential stacked-PR candidate detected on '$branch':
+  $files files, $lines changed lines, $commits commits relative to $base_ref
+
+Consider using the repository's stacked-pr-workflow skill or stacked-pr-builder
+agent before pushing:
+
+  gh extension install github/gh-stack
+  gh stack init --base $trunk <bottom-branch>
+
+Set GH_STACK_BYPASS=1 for an intentional conventional push.
+EOF
+
+if [ "${GH_STACK_HOOK_ENFORCE:-0}" = "1" ]; then
+  echo "Push blocked because GH_STACK_HOOK_ENFORCE=1." >&2
+  exit 1
+fi
+
+echo "Warning only; push will continue." >&2
+exit 0

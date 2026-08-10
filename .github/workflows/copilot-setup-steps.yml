@@ -1,0 +1,27 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install official GitHub Stacked PRs extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh extension install github/gh-stack
+
+      - name: Verify GitHub Stacked PRs extension
+        run: gh stack --help
